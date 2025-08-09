@@ -3351,10 +3351,38 @@ const getHTMLContent = (title) => `
                 }
 
                 // Cloudflare导入相关功能
-                document.getElementById('importCFBtn').addEventListener('click', function() {
-                    const modal = new bootstrap.Modal(document.getElementById('importCFModal'));
-                    modal.show();
-                });
+                const importCFBtn = document.getElementById('importCFBtn');
+                if (importCFBtn) {
+                    // 检查是否配置了Cloudflare API Token
+                    async function checkCFApiToken() {
+                        try {
+                            const response = await fetch('/api/cloudflare/account');
+                            if (response.ok) {
+                                // API Token配置正确，显示按钮
+                                importCFBtn.style.display = 'inline-block';
+                                importCFBtn.style.visibility = 'visible';
+                            } else {
+                                // API Token未配置或配置错误，隐藏按钮
+                                importCFBtn.style.display = 'none';
+                                importCFBtn.style.visibility = 'hidden';
+                            }
+                        } catch (error) {
+                            // API Token未配置或配置错误，隐藏按钮
+                            importCFBtn.style.display = 'none';
+                            importCFBtn.style.visibility = 'hidden';
+                        }
+                    }
+                    
+                    // 页面加载时检查API Token
+                    checkCFApiToken();
+                    
+                    importCFBtn.addEventListener('click', function() {
+                        const modal = new bootstrap.Modal(document.getElementById('importCFModal'));
+                        modal.show();
+                    });
+                } else {
+                    console.error('导入CF域名按钮未找到');
+                }
 
                 // 检查Cloudflare账户连接
                 document.getElementById('checkCFAccountBtn').addEventListener('click', async function() {
@@ -4495,6 +4523,9 @@ export default {
       if (env.TG_ID) {
         globalThis.TG_ID = env.TG_ID;
       }
+      if (env.CF_API_TOKEN) {
+        globalThis.CF_API_TOKEN = env.CF_API_TOKEN;
+      }
     }
     
     // 使用相同的请求处理函数
@@ -4513,6 +4544,9 @@ export default {
       }
       if (env.TG_ID) {
         globalThis.TG_ID = env.TG_ID;
+      }
+      if (env.CF_API_TOKEN) {
+        globalThis.CF_API_TOKEN = env.CF_API_TOKEN;
       }
     }
     
