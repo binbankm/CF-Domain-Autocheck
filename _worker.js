@@ -17,6 +17,9 @@ const DEFAULT_TOKEN = ''; // 在此处设置默认密码，留空则使用'domai
 const DEFAULT_TG_TOKEN = ''; // 你的Telegram机器人Token，留空则尝试读取环境变量中TG_TOKEN的值
 const DEFAULT_TG_ID = '';    // 你的Telegram聊天ID，留空则尝试读取环境变量中TG_ID的值
 
+// Cloudflare API Token配置
+const DEFAULT_CF_API_TOKEN = ''; // Cloudflare API Token，留空则尝试读取环境变量中CF_API_TOKEN的值
+
 // 网站标题配置
 const DEFAULT_SITE_NAME = ''; // 默认网站标题，外置环境变量名为SITE_NAME
 
@@ -1573,6 +1576,9 @@ const getHTMLContent = (title) => `
                 <button class="btn btn-primary btn-action add-domain-btn" data-bs-toggle="modal" data-bs-target="#addDomainModal">
                     <i class="iconfont icon-jia" style="color: white;"></i> <span style="color: white;">添加域名</span>
                 </button>
+                <button class="btn btn-info btn-action" id="importCFBtn" style="background-color: #17a2b8 !important; border-color: #17a2b8 !important;">
+                    <i class="iconfont icon-cloud" style="color: white;"></i> <span style="color: white;">导入CF域名</span>
+                </button>
                 <div class="dropdown">
                     <button class="btn btn-danger dropdown-toggle btn-action sort-btn" type="button" id="sortDropdown" data-bs-toggle="dropdown" aria-expanded="false">
                         <i class="iconfont icon-paixu" style="color: white;"></i> <span style="color: white;">域名排序</span>
@@ -1827,6 +1833,65 @@ const getHTMLContent = (title) => `
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal"><i class="iconfont icon-xmark"></i> 取消</button>
                     <button type="button" class="btn btn-success" id="confirmRenewBtn"><i class="iconfont icon-arrows-rotate"></i> 确认续期</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Cloudflare导入模态框 -->
+    <div class="modal fade" id="importCFModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="iconfont icon-cloud"></i> 导入Cloudflare域名</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div id="cfImportStatus">
+                        <div class="alert alert-info">
+                            <i class="iconfont icon-info"></i> 此功能将自动从您的Cloudflare账户获取所有域名并导入到监控系统中。
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label"><i class="iconfont icon-key"></i> Cloudflare API Token</label>
+                            <div class="alert alert-warning">
+                                <i class="iconfont icon-warning"></i> 请确保您已配置Cloudflare API Token环境变量（CF_API_TOKEN）
+                            </div>
+                        </div>
+                        <div class="mb-3">
+                            <button type="button" class="btn btn-primary" id="checkCFAccountBtn">
+                                <i class="iconfont icon-check"></i> 检查账户连接
+                            </button>
+                            <span id="cfAccountStatus" class="ms-2"></span>
+                        </div>
+                        <div class="mb-3">
+                            <button type="button" class="btn btn-success" id="importCFDomainsBtn" disabled>
+                                <i class="iconfont icon-download"></i> 开始导入域名
+                            </button>
+                        </div>
+                    </div>
+                    <div id="cfImportProgress" style="display: none;">
+                        <div class="progress mb-3">
+                            <div class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="width: 0%"></div>
+                        </div>
+                        <div id="cfImportLog" class="alert alert-info" style="max-height: 200px; overflow-y: auto;">
+                            <div class="log-entry">准备导入...</div>
+                        </div>
+                    </div>
+                    <div id="cfImportResult" style="display: none;">
+                        <div class="alert alert-success">
+                            <h6><i class="iconfont icon-success"></i> 导入完成</h6>
+                            <div id="importSummary"></div>
+                        </div>
+                        <div id="importErrors" style="display: none;">
+                            <h6><i class="iconfont icon-error"></i> 导入错误</h6>
+                            <div id="errorList" class="alert alert-danger" style="max-height: 150px; overflow-y: auto;"></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+                        <span style="color: white;"><i class="iconfont icon-xmark"></i> 关闭</span>
+                    </button>
                 </div>
             </div>
         </div>
@@ -3284,6 +3349,102 @@ const getHTMLContent = (title) => `
                         }
                     });
                 }
+
+                // Cloudflare导入相关功能
+                document.getElementById('importCFBtn').addEventListener('click', function() {
+                    const modal = new bootstrap.Modal(document.getElementById('importCFModal'));
+                    modal.show();
+                });
+
+                // 检查Cloudflare账户连接
+                document.getElementById('checkCFAccountBtn').addEventListener('click', async function() {
+                    const statusElement = document.getElementById('cfAccountStatus');
+                    const importBtn = document.getElementById('importCFDomainsBtn');
+                    
+                    statusElement.innerHTML = '<i class="iconfont icon-loading"></i> 检查中...';
+                    
+                    try {
+                        const response = await fetch('/api/cloudflare/account');
+                        if (!response.ok) {
+                            const error = await response.json();
+                            throw new Error(error.error || '检查失败');
+                        }
+                        
+                        const accountInfo = await response.json();
+                        statusElement.innerHTML = '<i class="iconfont icon-success"></i> 连接成功 - ' + accountInfo.email;
+                        statusElement.className = 'ms-2 text-success';
+                        importBtn.disabled = false;
+                    } catch (error) {
+                        statusElement.innerHTML = '<i class="iconfont icon-error"></i> 连接失败: ' + error.message;
+                        statusElement.className = 'ms-2 text-danger';
+                        importBtn.disabled = true;
+                    }
+                });
+
+                // 导入Cloudflare域名
+                document.getElementById('importCFDomainsBtn').addEventListener('click', async function() {
+                    const progressDiv = document.getElementById('cfImportProgress');
+                    const statusDiv = document.getElementById('cfImportStatus');
+                    const resultDiv = document.getElementById('cfImportResult');
+                    const progressBar = document.querySelector('#cfImportProgress .progress-bar');
+                    const logDiv = document.getElementById('cfImportLog');
+                    const summaryDiv = document.getElementById('importSummary');
+                    const errorsDiv = document.getElementById('importErrors');
+                    const errorListDiv = document.getElementById('errorList');
+                    
+                    // 显示进度界面
+                    statusDiv.style.display = 'none';
+                    progressDiv.style.display = 'block';
+                    resultDiv.style.display = 'none';
+                    
+                    // 重置进度
+                    progressBar.style.width = '0%';
+                    logDiv.innerHTML = '<div class="log-entry">开始导入Cloudflare域名...</div>';
+                    
+                    try {
+                        const response = await fetch('/api/cloudflare/import', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json'
+                            }
+                        });
+                        
+                        if (!response.ok) {
+                            const error = await response.json();
+                            throw new Error(error.error || '导入失败');
+                        }
+                        
+                        const result = await response.json();
+                        
+                        // 更新进度条
+                        progressBar.style.width = '100%';
+                        
+                        // 显示结果
+                        progressDiv.style.display = 'none';
+                        resultDiv.style.display = 'block';
+                        
+                        // 显示导入摘要
+                        summaryDiv.innerHTML = 
+                            '<p>总共发现 <strong>' + result.total + '</strong> 个域名</p>' +
+                            '<p>成功导入 <strong>' + result.importedCount + '</strong> 个域名</p>' +
+                            '<p>跳过 <strong>' + (result.total - result.importedCount - result.errorCount) + '</strong> 个已存在的域名</p>' +
+                            (result.errorCount > 0 ? '<p>导入失败 <strong>' + result.errorCount + '</strong> 个域名</p>' : '');
+                        
+                        // 显示错误信息
+                        if (result.errors && result.errors.length > 0) {
+                            errorsDiv.style.display = 'block';
+                            errorListDiv.innerHTML = result.errors.map(function(error) { return '<div>' + error + '</div>'; }).join('');
+                        }
+                        
+                        // 重新加载域名列表
+                        await loadDomains();
+                        
+                    } catch (error) {
+                        logDiv.innerHTML += '<div class="log-entry text-danger">导入失败: ' + error.message + '</div>';
+                        progressBar.style.width = '100%';
+                        progressBar.className = 'progress-bar progress-bar-striped progress-bar-animated bg-danger';
+                    }
+                });
             </script>
         </body>
     </html>
@@ -3533,6 +3694,36 @@ async function handleApiRequest(request) {
       return jsonResponse(result);
     } catch (error) {
       return jsonResponse({ error: '测试通知失败: ' + error.message }, 400);
+    }
+  }
+  
+  // 获取Cloudflare账户信息
+  if (path === '/api/cloudflare/account' && request.method === 'GET') {
+    try {
+      const accountInfo = await getCFAccountInfo();
+      return jsonResponse(accountInfo);
+    } catch (error) {
+      return jsonResponse({ error: '获取Cloudflare账户信息失败: ' + error.message }, 400);
+    }
+  }
+
+  // 获取Cloudflare域名列表
+  if (path === '/api/cloudflare/domains' && request.method === 'GET') {
+    try {
+      const domains = await getCFDomains();
+      return jsonResponse(domains);
+    } catch (error) {
+      return jsonResponse({ error: '获取Cloudflare域名列表失败: ' + error.message }, 400);
+    }
+  }
+
+  // 批量导入Cloudflare域名
+  if (path === '/api/cloudflare/import' && request.method === 'POST') {
+    try {
+      const result = await importCFDomains();
+      return jsonResponse(result);
+    } catch (error) {
+      return jsonResponse({ error: '批量导入Cloudflare域名失败: ' + error.message }, 400);
     }
   }
   
@@ -4466,4 +4657,163 @@ function getSetupHTML() {
   </div>
 </body>
 </html>`;
+}
+
+// 获取Cloudflare API Token
+function getCFApiToken() {
+  // 优先级：环境变量 > 代码中的变量 > 默认值
+  if (typeof CF_API_TOKEN !== 'undefined' && CF_API_TOKEN) {
+    return CF_API_TOKEN;
+  }
+  if (DEFAULT_CF_API_TOKEN) {
+    return DEFAULT_CF_API_TOKEN;
+  }
+  return null;
+}
+
+// 获取Cloudflare账户信息
+async function getCFAccountInfo() {
+  const token = getCFApiToken();
+  if (!token) {
+    throw new Error('未配置Cloudflare API Token');
+  }
+
+  try {
+    const response = await fetch('https://api.cloudflare.com/client/v4/user', {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      }
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(`获取账户信息失败: ${error.errors?.[0]?.message || response.statusText}`);
+    }
+
+    const data = await response.json();
+    return data.result;
+  } catch (error) {
+    throw new Error(`获取账户信息失败: ${error.message}`);
+  }
+}
+
+// 获取Cloudflare账户下的所有域名
+async function getCFDomains() {
+  const token = getCFApiToken();
+  if (!token) {
+    throw new Error('未配置Cloudflare API Token');
+  }
+
+  try {
+    const response = await fetch('https://api.cloudflare.com/client/v4/zones?per_page=1000', {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      }
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(`获取域名列表失败: ${error.errors?.[0]?.message || response.statusText}`);
+    }
+
+    const data = await response.json();
+    return data.result || [];
+  } catch (error) {
+    throw new Error(`获取域名列表失败: ${error.message}`);
+  }
+}
+
+// 获取域名的详细信息（包括到期时间）
+async function getCFDomainDetails(zoneId) {
+  const token = getCFApiToken();
+  if (!token) {
+    throw new Error('未配置Cloudflare API Token');
+  }
+
+  try {
+    const response = await fetch(`https://api.cloudflare.com/client/v4/zones/${zoneId}`, {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      }
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(`获取域名详情失败: ${error.errors?.[0]?.message || response.statusText}`);
+    }
+
+    const data = await response.json();
+    return data.result;
+  } catch (error) {
+    throw new Error(`获取域名详情失败: ${error.message}`);
+  }
+}
+
+// 批量导入Cloudflare域名
+async function importCFDomains() {
+  try {
+    const domains = await getCFDomains();
+    const importedDomains = [];
+    const errors = [];
+
+    for (const domain of domains) {
+      try {
+        // 检查域名是否已存在
+        const existingDomains = await getDomains();
+        const exists = existingDomains.some(d => d.name === domain.name);
+        
+        if (exists) {
+          errors.push(`域名 ${domain.name} 已存在，跳过导入`);
+          continue;
+        }
+
+        // 获取域名详细信息
+        const domainDetails = await getCFDomainDetails(domain.id);
+        
+        // 创建域名对象
+        const domainData = {
+          name: domain.name,
+          expiryDate: domainDetails.expires_on || new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // 如果没有到期时间，默认一年后
+          registrationDate: domainDetails.created_on || new Date().toISOString().split('T')[0],
+          registrar: 'Cloudflare',
+          customNote: `从Cloudflare自动导入 - ${domain.status}`,
+          noteColor: 'tag-blue',
+          renewLink: `https://dash.cloudflare.com/${domain.id}`,
+          renewCycle: {
+            value: 1,
+            unit: 'year'
+          },
+          price: null,
+          lastRenewed: null,
+          notifySettings: {
+            useGlobalSettings: true,
+            notifyDays: 30,
+            enabled: true
+          },
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        };
+
+        // 添加到数据库
+        await addDomain(domainData);
+        importedDomains.push(domain.name);
+      } catch (error) {
+        errors.push(`导入域名 ${domain.name} 失败: ${error.message}`);
+      }
+    }
+
+    return {
+      success: true,
+      imported: importedDomains,
+      errors: errors,
+      total: domains.length,
+      importedCount: importedDomains.length,
+      errorCount: errors.length
+    };
+  } catch (error) {
+    throw new Error(`批量导入失败: ${error.message}`);
+  }
 }
